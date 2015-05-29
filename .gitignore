@@ -1,0 +1,15 @@
+!.gitignore
+.DS_Store
+*.swp
+.build
+_build
+blib
+Build
+Makefile.PL
+MANIFEST*
+META.*
+MYMETA.*
+Catmandu-MediaWiki-*
+!*.t
+_build_params
+test/
