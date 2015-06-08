@@ -4,37 +4,23 @@ use MediaWiki::API;
 use Catmandu::Util qw(:is :check array_includes);
 use Moo;
 
+#only generators that generate pages, and that have generators
 my $generators = [qw(
-    allcategories
-    allfileusages
-    allimages
     alllinks
     allpages
     allredirects
     alltransclusions
-    allusers
     backlinks
-    blocks
     categorymembers
-    deletedrevs
     embeddedin
     exturlusage
-    filearchive
     imageusage
     iwbacklinks
     langbacklinks
-    logevents
-    pagepropnames
     pageswithprop
     prefixsearch
-    protectedtitles
-    querypage
     random
     recentchanges
-    search
-    tags
-    usercontribs
-    users
     watchlist
     watchlistraw
 )];
