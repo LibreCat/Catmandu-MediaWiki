@@ -3,9 +3,8 @@ use Catmandu::Sane;
 use MediaWiki::API;
 use Catmandu::Util qw(:is :check array_includes);
 use Moo;
-use Data::Dumper;
 
-my $lists = [qw(
+my $generators = [qw(
     allcategories
     allfileusages
     allimages
@@ -39,65 +38,38 @@ my $lists = [qw(
     watchlist
     watchlistraw
 )];
-my $list_prefix = {
-    allcategories => "ac",
-    allfileusages => "af",
-    allimages => "ai",
-    alllinks => "al",
-    allpages => "ap",
-    allredirects => "ar",
-    alltransclusions => "at",
-    allusers => "au",
-    backlinks => "bl",
-    blocks => "bk",
-    categorymembers => "cm",
-    deletedrevs => "dr",
-    embeddedin => "ei",
-    exturlusage => "eu",
-    filearchive => "fa",
-    imageusage => "iu",
-    iwbacklinks => "iwbl",
-    langbacklinks => "lbl",
-    logevents => "le",
-    pagepropnames => "ppn",
-    pageswithprop => "pwp",
-    prefixsearch => "ps",
-    protectedtitles => "pt",
-    querypage => "qp",
-    random => "rn",
-    recentchanges => "rc",
-    search => "sr",
-    tags => "tg",
-    usercontribs => "uc",
-    users => "us",
-    watchlist => "wl",
-    watchlistraw => "wr"
+my $default_args = {
+    prop => "revisions",
+    rvprop => "ids|flags|timestamp|user|comment|size|content",
+    gaplimit => 100,
+    gapfilterredir => "nonredirects"
 };
 
 has url => (
     is => 'ro',
     isa => sub { check_string($_[0]); }
 );
+#cf. https://www.mediawiki.org/wiki/API:Login
+has lgname => ( is => 'ro' );
+has lgpassword => ( is => 'ro' );
 #cf. http://www.mediawiki.org/wiki/API:Lists
-has list => (
+#cf. http://www.mediawiki.org/wiki/API:Query#Generators
+has generate => (
     is => 'ro',
     isa => sub {
-        array_includes($lists,$_[0]) or die("invalid list module");
+        array_includes($generators,$_[0]) or die("invalid generator");
     },
     lazy => 1,
     default => sub { "allpages"; }
 );
-has list_args => (
+has args => (
     is => 'ro',
     isa => sub { check_hash_ref($_[0]); },
     lazy => 1,
-    default => sub {
-        +{
-            prop => "revisions",
-            rvprop => "ids|flags|timestamp|user|comment|size|content",
-            aplimit => 100,
-            apfilterredir => "nonredirects"
-        };
+    default => sub { $default_args },
+    coerce => sub {
+        my $l = $_[0];
+        return is_hash_ref($l) ? +{ %$default_args,%$l } : $default_args;
     }
 );
 
@@ -116,35 +88,41 @@ sub _build_mw {
 
     $mw;
 }
+sub _fail {
+    my $err = $_[0];
+    die( $err->{code}.': '.$err->{details} );
+}
 
 sub generator {
     my $self = $_[0];
 
-    my $list = $self->list();
-    my $list_args = $self->list_args();
-    my $prefix = $list_prefix->{$list};
-
-    #map module arguments to generator. e.g. aplimit => gaplimit
-    my @module_keys = grep { index($_,$prefix) == 0 } keys %$list_args;
-    for(@module_keys){
-        $list_args->{'g'.$_} = delete $list_args->{$_};
-    }
+    my $generator = $self->generate();
+    my $args = $self->args();
 
     sub {
         state $mw = $self->_build_mw();
         state $pages = [];
         state $cont_args = { continue => '' };
+        state $logged_in = 0;
+
+        unless($logged_in){
+            #only try to login when both arguments are set
+            if(is_string($self->lgname) && is_string($self->lgpassword)){
+                $mw->login({ lgname => $self->lgname, lgpassword => $self->lgpassword }) or _fail($mw->{error});
+            }
+            $logged_in = 1;
+        }
 
         unless(@$pages){
-            my $args = {
-                %$list_args,
+            my $a = {
+                %$args,
                 %$cont_args,
                 action => "query",
                 indexpageids => 1,
-                generator => $list,
-                format => "json",
+                generator => $generator,
+                format => "json"
             };
-            my $res = $mw->api($args) or die(Dumper($mw->{error}));
+            my $res = $mw->api($a) or _fail($mw->{error});
             return unless defined $res;
             return unless exists $res->{'continue'};
 
@@ -160,5 +138,138 @@ sub generator {
         shift @$pages;
     };
 }
+
+=head1 NAME
+
+Catmandu::Importer::MediaWiki - Catmandu importer that imports pages from mediawiki
+
+=head1 DESCRIPTION
+
+This importer uses the query api from mediawiki to get a list of pages
+that match certain requirements.
+
+It retrieves a list of pages and their content by using the generators
+from mediawiki:
+
+L<http://www.mediawiki.org/wiki/API:Query#Generators>
+
+The default generator is 'allpages'.
+
+The list could also be retrieved with the module 'list':
+
+L<http://www.mediawiki.org/wiki/API:Lists>
+
+But this module 'list' is very limited. It retrieves a list of pages
+with a limited set of attributes (pageid, ns and title).
+
+The module 'properties' on the other hand lets you add properties:
+
+L<http://www.mediawiki.org/wiki/API:Properties>
+
+But the selecting parameters (titles, pageids and revids) are too specific
+to execute a query in one call. One should execute a list query, and then
+use the pageids to feed them to the submodule 'properties'.
+
+To execute a query, and add properties to the pages in one call can be
+accomplished by use of generators.
+
+L<http://www.mediawiki.org/wiki/API:Query#Generators>
+
+These parameters are set automatically, and cannot be overwritten:
+
+action = "query"
+indexpageids = 1
+generator = <generate>
+format = "json"
+
+Additional parameters can be set in the constructor argument 'args'.
+Arguments for a generator origin from the list module with the same name,
+but must be prepended with 'g'.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item generate
+
+type: string
+
+explanation:    type of generator to use. For a complete list, see L<http://www.mediawiki.org/wiki/API:Lists>.
+                because Catmandu::Iterable already defines 'generator', this parameter has been renamed
+                to 'generate'.
+
+default: 'allpages'.
+
+=item args
+
+type: hash
+
+explanation: extra arguments. These arguments are merged with the defaults.
+
+default:
+
+    {
+        prop => "revisions",
+        rvprop => "ids|flags|timestamp|user|comment|size|content",
+        gaplimit => 100,
+        gapfilterredir => "nonredirects"
+    }
+
+which means:
+
+    prop             add revisions to the list of page attributes
+    rvprop           specific properties for the list of revisions
+    gaplimit         limit for generator 'allpages' (every 'generator' has its own limit).
+    gapfilterredir   filter out redirect pages
+
+=item lgname
+
+type: string
+
+explanation:    login name. Only used when both lgname and lgpassword are set.
+
+L<https://www.mediawiki.org/wiki/API:Login>
+
+=item lgpassword
+
+type: string
+
+explanation:    login password. Only used when both lgname and lgpassword are set.
+
+=back
+
+=head1 SYNOPSIS
+
+    use Catmandu::Sane;
+    use Catmandu::Importer::MediaWiki;
+
+    binmode STDOUT,":utf8";
+
+    my $importer = Catmandu::Importer::MediaWiki->new(
+        url => "http://en.wikipedia.org/w/api.php",
+        generate => "allpages",
+        args => {
+            prop => "revisions",
+            rvprop => "ids|flags|timestamp|user|comment|size|content",
+            gaplimit => 100,
+            gapprefix => "plato",
+            gapfilterredir => "nonredirects"
+        }
+    );
+    $importer->each(sub{
+        my $r = shift;
+        my $content = $r->{revisions}->[0]->{"*"};
+        say $r->{title};
+    });
+
+=head1 AUTHORS
+
+Nicolas Franck C<< <nicolas.franck at ugent.be> >>
+
+=head1 SEE ALSO
+
+L<Catmandu>, L<MediaWiki::API>
+
+=cut
 
 1;

@@ -9,6 +9,10 @@ Catmandu::MediaWiki - Catmandu modules for MediaWiki
 
 Nicolas Franck C<< <nicolas.franck at ugent.be> >>
 
+=head1 MODULES
+
+L<Catmandu::Importer::MediaWiki>
+
 =head1 SEE ALSO
 
 L<Catmandu>, L<MediaWiki::API>
