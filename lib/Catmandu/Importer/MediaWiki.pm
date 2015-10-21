@@ -100,6 +100,8 @@ sub generator {
         }
 
         unless(@$pages){
+            return unless defined $cont_args;
+
             my $a = {
                 %$args,
                 %$cont_args,
@@ -110,7 +112,6 @@ sub generator {
             };
             my $res = $mw->api($a) or _fail($mw->{error});
             return unless defined $res;
-            return unless exists $res->{'continue'};
 
             $cont_args = $res->{'continue'};
 
