@@ -27,6 +27,7 @@ my $generators = [qw(
 my $default_args = {
     prop => "revisions",
     rvprop => "ids|flags|timestamp|user|comment|size|content",
+    rvlimit => 'max',
     gaplimit => 100,
     gapfilterredir => "nonredirects"
 };
@@ -55,7 +56,11 @@ has args => (
     default => sub { $default_args },
     coerce => sub {
         my $l = $_[0];
-        return is_hash_ref($l) ? +{ %$default_args,%$l } : $default_args;
+        my $h = is_hash_ref($l) ? +{ %$default_args,%$l } : $default_args;
+        for(keys %$h){
+            delete $h->{$_} unless defined $h->{$_};
+        }
+        $h;
     }
 );
 
@@ -110,13 +115,33 @@ sub generator {
                 generator => $generator,
                 format => "json"
             };
+            #will work with generator in the future
+            delete $a->{rvlimit};
             my $res = $mw->api($a) or _fail($mw->{error});
             return unless defined $res;
 
             $cont_args = $res->{'continue'};
 
             if(exists($res->{'query'}->{'pageids'})){
+
                 for my $pageid(@{ $res->{'query'}->{'pageids'} }){
+                    #'titles, pageids or a generator was used to supply multiple pages, but the limit, startid, endid, dirNewer, user, excludeuser, start and end parameters may only be used on a single page.'
+                    #which means: cannot repeat pageids when asking for full history
+                    my $page = $res->{'query'}->{'pages'}->{$pageid};
+                    if(is_string($args->{rvlimit})){
+
+                        my $a = {
+                            action => "query",
+                            format => "json",
+                            pageids => $pageid,
+                            prop => "revisions",
+                            rvprop => $default_args->{rvprop},
+                            rvlimit => $args->{rvlimit}
+                        };
+                        my $res2 = $mw->api($a) or _fail($mw->{error});
+                        $page->{revisions} = $res2->{'query'}->{'pages'}->{$pageid}->{revisions} if $res2->{'query'}->{'pages'}->{$pageid}->{revisions};
+
+                    }
                     push @$pages,$res->{'query'}->{'pages'}->{$pageid};
                 }
             }
