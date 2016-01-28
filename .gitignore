@@ -13,3 +13,4 @@ Catmandu-MediaWiki-*
 !*.t
 _build_params
 test/
+local

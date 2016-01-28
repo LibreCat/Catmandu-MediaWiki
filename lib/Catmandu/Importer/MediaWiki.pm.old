@@ -2,7 +2,6 @@ package Catmandu::Importer::MediaWiki;
 use Catmandu::Sane;
 use MediaWiki::API;
 use Catmandu::Util qw(:is :check array_includes);
-use URI::Escape;
 use Moo;
 
 #only generators that generate pages, and that have generators
@@ -27,29 +26,10 @@ my $generators = [qw(
 )];
 my $default_args = {
     prop => "revisions",
-    rvprop => "ids|flags|timestamp|user|comment|size|content|sha1|tags|userid|parsedcomment",
+    rvprop => "ids|flags|timestamp|user|comment|size|content",
     rvlimit => 'max',
     gaplimit => 100,
     gapfilterredir => "nonredirects"
-};
-my $ns_map = {
-    allpages => "gapnamespace",
-    alllinks => "galnamespace",
-    allredirects => "garnamespace",
-    alltransclusions => "gatnamespace",
-    backlinks => "gblnamespace",
-    categorymembers => "gcmnamespace",
-    embeddedin => "geinamespace",
-    exturlusage => "geunamespace",
-    imageusage => "giunamespace",
-    iwbacklinks => undef,
-    langbacklinks => undef,
-    pageswithprop => undef,
-    prefixsearch => "gpsnamespace",
-    random => "grnnamespace",
-    recentchanges => "grcnamespace",
-    watchlist => "gwlnamespace",
-    watchlistraw => "gwrnamespace"
 };
 
 has url => (
@@ -113,11 +93,9 @@ sub generator {
     sub {
         state $mw = $self->_build_mw();
         state $pages = [];
-        state $cont_args = {};
+        state $cont_args = { continue => '' };
         state $logged_in = 0;
         state $namespaces = [];
-        state $namespace_key = $ns_map->{ $generator };
-        state $siteinfo = {};
 
         unless($logged_in){
             #only try to login when both arguments are set
@@ -126,127 +104,69 @@ sub generator {
             }
             $logged_in = 1;
         }
-
-        #store continue arguments per namespace
+        #Try to get all namespaces by default
         if(scalar(@$namespaces) == 0){
-            #namespaces supported: true
-            if(defined $namespace_key){
-
-                if(is_string($args->{ $namespace_key })){
-                    push @$namespaces,split(/\|/o,$args->{ $namespace_key });
-                }
-                else{
-
-                    my $r = $mw->api({ action => "query", meta => "siteinfo", "siprop" => "namespaces|general" }) or _fail($mw->{error});
-                    return unless defined $r;
-                    $siteinfo =  $r->{query};
-                    push @$namespaces,sort keys(%{ $siteinfo->{namespaces} });
-
-                }
-                use Data::Dumper;
-                print Dumper($siteinfo);
-                $cont_args->{$_} = { continue => '' } for @$namespaces;
-
+            if(is_string($args->{gapnamespace})){
+                push @$namespaces,split(/\|/o,$args->{gapnamespace});
             }
-            #namespaces supported: false
             else{
 
-                push @$namespaces,"_none_";
-                $cont_args->{_none_} = { continue => '' };
+                my $r = $mw->api({ action => "query", meta => "siteinfo", "siprop" => "namespaces" }) or _fail($mw->{error});
+                return unless defined $r;
+                push @$namespaces,sort keys(%{ $r->{query}->{namespaces} });
 
             }
         }
 
-        return unless scalar(@$namespaces);
-
         unless(@$pages){
-            #results for namespace are depleted: goto next
-            unless(defined ($cont_args->{ $namespaces->[0] })){
-                shift @$namespaces;
-            }
+            return unless defined $cont_args;
 
-            return unless scalar(@$namespaces);
+            for my $ns(@$namespaces){
 
-            #look until you found a decent namespace
-            my $res;
-            while(scalar(@$namespaces)){
                 my $a = {
                     %$args,
-                    %{$cont_args->{ $namespaces->[0] } },
+                    %$cont_args,
                     action => "query",
                     indexpageids => 1,
                     generator => $generator,
-                    format => "json"
+                    format => "json",
+                    #parameter andere naam voor andere generators (vb. gcmnamespace => categorymembers) => TODO
+                    gapnamespace => $ns
                 };
-                if(defined $namespace_key){
-                    $a->{ $namespace_key } = $namespaces->[0];
-                }
                 #will work with generator in the future
                 delete $a->{rvlimit};
-                $res = $mw->api($a);
+                my $res = $mw->api($a);
                 if(!$res){
-                    if ( $mw->{error}->{details} =~  /gapunknown_gapnamespace/o || $mw->{error}->{details} =~ /API has returned an empty array reference/o ){
-                        shift @$namespaces;
-                        return unless scalar(@$namespaces);
-                        next;
-                    }
+                    next if $mw->{error}->{details} =~  /gapunknown_gapnamespace/o;
                     _fail($mw->{error});
-                }else{
-                    last;
                 }
-            }
 
-            return unless defined $res;
+                return unless defined $res;
 
-            $cont_args->{ $namespaces->[0] } = $res->{'continue'};
+                $cont_args = $res->{'continue'};
 
-            if(exists($res->{'query'}->{'pageids'})){
+                if(exists($res->{'query'}->{'pageids'})){
 
-                for my $pageid(@{ $res->{'query'}->{'pageids'} }){
-                    #'titles, pageids or a generator was used to supply multiple pages, but the limit, startid, endid, dirNewer, user, excludeuser, start and end parameters may only be used on a single page.'
-                    #which means: cannot repeat pageids when asking for full history
-                    my $page = $res->{'query'}->{'pages'}->{$pageid};
-                    if(is_string($args->{rvlimit})){
+                    for my $pageid(@{ $res->{'query'}->{'pageids'} }){
+                        #'titles, pageids or a generator was used to supply multiple pages, but the limit, startid, endid, dirNewer, user, excludeuser, start and end parameters may only be used on a single page.'
+                        #which means: cannot repeat pageids when asking for full history
+                        my $page = $res->{'query'}->{'pages'}->{$pageid};
+                        if(is_string($args->{rvlimit})){
 
-                        my $a = {
-                            action => "query",
-                            format => "json",
-                            pageids => $pageid,
-                            prop => "revisions",
-                            rvprop => $default_args->{rvprop},
-                            rvlimit => $args->{rvlimit}
-                        };
-                        my $res2 = $mw->api($a) or _fail($mw->{error});
-                        $page->{revisions} = $res2->{'query'}->{'pages'}->{$pageid}->{revisions} if $res2->{'query'}->{'pages'}->{$pageid}->{revisions};
+                            my $a = {
+                                action => "query",
+                                format => "json",
+                                pageids => $pageid,
+                                prop => "revisions",
+                                rvprop => $default_args->{rvprop},
+                                rvlimit => $args->{rvlimit}
+                            };
+                            my $res2 = $mw->api($a) or _fail($mw->{error});
+                            $page->{revisions} = $res2->{'query'}->{'pages'}->{$pageid}->{revisions} if $res2->{'query'}->{'pages'}->{$pageid}->{revisions};
 
+                        }
+                        push @$pages,$res->{'query'}->{'pages'}->{$pageid};
                     }
-                    #add source url
-                    my $articlepath = $siteinfo->{general}->{articlepath};
-                    my $title = URI::Escape::uri_escape_utf8( $page->{title} );
-                    $articlepath =~ s/\$1/${title}/;
-
-                    #server:  http://localhost:8000
-                    my $server = $siteinfo->{general}->{server};
-                    #servername: localhost:8000
-                    my $servername = $siteinfo->{general}->{servername};
-
-                    my $url;
-                    if( is_string($server) ){
-
-                        $url = $server.$articlepath;
-
-                    }
-                    else{
-
-                        my $base = $siteinfo->{general}->{base};
-                        my $protocol = $base =~ /^https/o ? "https" : "http";
-                        $url = "${protocol}://".$siteinfo->{general}->{servername}.$articlepath;
-
-                    }
-                    $page->{_url} = $url;
-
-
-                    push @$pages,$page;
                 }
             }
         }
