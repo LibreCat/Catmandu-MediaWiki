@@ -136,17 +136,12 @@ sub generator {
                     push @$namespaces,split(/\|/o,$args->{ $namespace_key });
                 }
                 else{
-
                     my $r = $mw->api({ action => "query", meta => "siteinfo", "siprop" => "namespaces|general" }) or _fail($mw->{error});
                     return unless defined $r;
                     $siteinfo =  $r->{query};
                     push @$namespaces,sort keys(%{ $siteinfo->{namespaces} });
-
                 }
-                use Data::Dumper;
-                print Dumper($siteinfo);
                 $cont_args->{$_} = { continue => '' } for @$namespaces;
-
             }
             #namespaces supported: false
             else{
@@ -159,7 +154,7 @@ sub generator {
 
         return unless scalar(@$namespaces);
 
-        unless(@$pages){
+        if(scalar(@$pages)==0){
             #results for namespace are depleted: goto next
             unless(defined ($cont_args->{ $namespaces->[0] })){
                 shift @$namespaces;
@@ -196,6 +191,7 @@ sub generator {
                 }
             }
 
+
             return unless defined $res;
 
             $cont_args->{ $namespaces->[0] } = $res->{'continue'};
@@ -206,6 +202,38 @@ sub generator {
                     #'titles, pageids or a generator was used to supply multiple pages, but the limit, startid, endid, dirNewer, user, excludeuser, start and end parameters may only be used on a single page.'
                     #which means: cannot repeat pageids when asking for full history
                     my $page = $res->{'query'}->{'pages'}->{$pageid};
+
+                    #add source url
+                    my $title = $page->{title};
+                    $title =~ s/\s/_/go;
+
+                    {
+                        my $articlepath = $siteinfo->{general}->{articlepath};
+                        $articlepath =~ s/\$1/${title}/;
+
+                        #server:  http://localhost:8000
+                        my $server = $siteinfo->{general}->{server};
+                        #servername: localhost:8000
+                        my $servername = $siteinfo->{general}->{servername};
+
+                        my $url;
+                        if( is_string($server) ){
+
+                            $url = $server.$articlepath;
+
+                        }
+                        else{
+
+                            my $base = $siteinfo->{general}->{base};
+                            my $protocol = $base =~ /^https/o ? "https" : "http";
+                            $url = "${protocol}://".$siteinfo->{general}->{servername}.$articlepath;
+
+                        }
+
+                        $page->{_url} = $url;
+
+                    }
+
                     if(is_string($args->{rvlimit})){
 
                         my $a = {
@@ -219,32 +247,14 @@ sub generator {
                         my $res2 = $mw->api($a) or _fail($mw->{error});
                         $page->{revisions} = $res2->{'query'}->{'pages'}->{$pageid}->{revisions} if $res2->{'query'}->{'pages'}->{$pageid}->{revisions};
 
-                    }
-                    #add source url
-                    my $articlepath = $siteinfo->{general}->{articlepath};
-                    my $title = URI::Escape::uri_escape_utf8( $page->{title} );
-                    $articlepath =~ s/\$1/${title}/;
+                        #add source url
+                        for my $revision(@{ $page->{revisions} } ){
 
-                    #server:  http://localhost:8000
-                    my $server = $siteinfo->{general}->{server};
-                    #servername: localhost:8000
-                    my $servername = $siteinfo->{general}->{servername};
+                            $revision->{_url} = $page->{_url}."?oldid=".$revision->{revid};
 
-                    my $url;
-                    if( is_string($server) ){
-
-                        $url = $server.$articlepath;
+                        }
 
                     }
-                    else{
-
-                        my $base = $siteinfo->{general}->{base};
-                        my $protocol = $base =~ /^https/o ? "https" : "http";
-                        $url = "${protocol}://".$siteinfo->{general}->{servername}.$articlepath;
-
-                    }
-                    $page->{_url} = $url;
-
 
                     push @$pages,$page;
                 }
