@@ -1,5 +1,5 @@
 package Catmandu::MediaWiki;
-our $VERSION = "0.1";
+our $VERSION = "0.01";
 
 =head1 NAME
 

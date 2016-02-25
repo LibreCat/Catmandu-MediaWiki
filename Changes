@@ -1,4 +1,6 @@
 Revision history for Catmandu::MediaWiki
 
 {{$NEXT}}
+
+0.01  2016-02-25 10:34:10 CET
   - initial release of Catmandu::MediaWiki
