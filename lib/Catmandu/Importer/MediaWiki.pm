@@ -83,6 +83,11 @@ has args => (
         $h;
     }
 );
+has mediawiki => (
+    is => 'ro',
+    lazy => 1,
+    builder => '_build_mw'
+);
 
 with 'Catmandu::Importer';
 
@@ -90,11 +95,9 @@ sub _build_mw {
     my $self = $_[0];
     my $mw = MediaWiki::API->new( { api_url => $self->url() }  );
 
-    my $ua = $mw->{ua};
-
     if(is_string($ENV{LWP_TRACE})){
-        $ua->add_handler("request_send",  sub { shift->dump; return });
-        $ua->add_handler("response_done", sub { shift->dump; return });
+        $mw->{ua}->add_handler("request_send",  sub { shift->dump; return });
+        $mw->{ua}->add_handler("response_done", sub { shift->dump; return });
     }
 
     $mw;
@@ -111,7 +114,7 @@ sub generator {
     my $args = $self->args();
 
     sub {
-        state $mw = $self->_build_mw();
+        state $mw = $self->mediawiki();
         state $pages = [];
         state $cont_args = {};
         state $logged_in = 0;
