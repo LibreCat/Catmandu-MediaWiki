@@ -1,6 +1,7 @@
 Revision history for Catmandu::MediaWiki
 
 {{$NEXT}}
+  - change minimum version of perl to 5.10.1
 
 0.01  2016-02-25 10:34:10 CET
   - initial release of Catmandu::MediaWiki
