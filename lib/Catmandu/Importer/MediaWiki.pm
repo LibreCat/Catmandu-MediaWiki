@@ -244,7 +244,7 @@ sub generator {
                             format => "json",
                             pageids => $pageid,
                             prop => "revisions",
-                            rvprop => $default_args->{rvprop},
+                            rvprop => $args->{rvprop},
                             rvlimit => $args->{rvlimit}
                         };
                         my $res2 = $mw->api($a) or _fail($mw->{error});

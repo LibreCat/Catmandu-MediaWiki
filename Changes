@@ -1,6 +1,7 @@
 Revision history for Catmandu::MediaWiki
 
 {{$NEXT}}
+  - rvprop now overridable
 
 0.02  2016-03-01 10:02:14 CET
   - change minimum version of perl to 5.10.1
