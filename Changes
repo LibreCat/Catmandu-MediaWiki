@@ -1,6 +1,8 @@
 Revision history for Catmandu::MediaWiki
 
 {{$NEXT}}
+
+0.021  2016-03-03 14:43:48 CET
   - rvprop now overridable
 
 0.02  2016-03-01 10:02:14 CET
